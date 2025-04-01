@@ -12,13 +12,11 @@ from dataclasses import dataclass
 from typing import Tuple, List, Optional, Dict, Any
 from scipy.signal import spectrogram
 
-
-# Configurații
 class Config:
     FS = 44100  # Frecvența de eșantionare
     R = 0.1  # Raza configurației microfonului (m)
     MIC_ANGLES = np.array([-45, -25, 25, 45])  # Unghiurile microfoanelor
-    WAVELENGTH = 343 / FS  # Lungimea de undă (viteza_sunet / frecvența)
+    WAVELENGTH = 343 / FS  # Lungimea de undă (viteza sunet / frecvența)
     BUFFER_DURATION = 5  # Durata buffer-ului pentru captura live
     NPERSEG = int(2 ** np.ceil(np.log2(FS // 200)))  # Dimensiunea ferestrei pentru spectrogramă
     NOVERLAP = NPERSEG // 2  # Overlap pentru spectrogramă (50%)
@@ -27,7 +25,7 @@ class Config:
 
 @dataclass
 class AudioAnalysisResult:
-    """Clasa pentru stocarea rezultatelor analizei audio."""
+    """Clasa pentru stocarea rezultatelor analizei audio"""
     distance: float
     angle: float
     snr: float
@@ -36,13 +34,13 @@ class AudioAnalysisResult:
 
 
 class AudioProcessor:
-    """Clasa pentru procesarea semnalelor audio."""
+    """Clasa pentru procesarea semnalelor audio"""
 
     def __init__(self):
         self.config = Config()
 
     def normalize_audio(self, data: np.ndarray, target_level: float = 0.9) -> np.ndarray:
-        """Normalizează semnalul audio la un nivel specificat."""
+        """Normalizează semnalul audio la un nivel specificat"""
         data = data.astype(np.float32)
         max_vals = np.max(np.abs(data), axis=1, keepdims=True)
         max_vals[max_vals == 0] = 1.0  # Evită împărțirea la zero
@@ -50,16 +48,16 @@ class AudioProcessor:
         return data * scaling_factors
 
     def estimate_covariance_matrix(self, data: np.ndarray) -> np.ndarray:
-        """Estimează matricea de covarianță."""
+        """Estimează matricea de covarianță"""
         mean_centered = data - np.mean(data, axis=1, keepdims=True)
         return (mean_centered @ mean_centered.T) / (data.shape[1] - 1)
 
     def calculate_steering_vector(self, angle: float) -> np.ndarray:
-        """Calculează vectorul de direcție pentru MUSIC."""
+        """Calculează vectorul de direcție pentru MUSIC"""
         return np.exp(-1j * 2 * np.pi * self.config.R * np.cos(np.deg2rad(angle - self.config.MIC_ANGLES)) / self.config.WAVELENGTH)
 
     def music_algorithm(self, cov_matrix: np.ndarray, num_sources: int = 1) -> Tuple[float, np.ndarray]:
-        """Implementare algoritm MUSIC pentru localizare."""
+        """Implementare algoritm MUSIC pentru localizare"""
         eigvals, eigvecs = eigh(cov_matrix)
         idx = np.argsort(eigvals)[::-1]
         noise_subspace = eigvecs[:, idx[num_sources:]]
@@ -77,7 +75,7 @@ class AudioProcessor:
         return peak_angle, spectrum
 
     def calculate_waterfall_psd(self, data: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Calculează periodograma waterfall pentru suma celor 4 microfoane."""
+        """Calculează periodograma waterfall pentru suma celor 4 microfoane"""
         summed_signal = np.sum(data, axis=0)
         freqs, times, Sxx = spectrogram(summed_signal, fs=self.config.FS, window='hann',
                                         nperseg=self.config.NPERSEG, noverlap=self.config.NOVERLAP)
@@ -85,7 +83,7 @@ class AudioProcessor:
         return freqs, times, psd
 
     def process_frame(self, frame: np.ndarray) -> Optional[AudioAnalysisResult]:
-        """Procesează un cadru audio."""
+        """Procesează un cadru audio"""
         frame = frame.T
         frame = self.normalize_audio(frame)
         rms = np.sqrt(np.mean(frame ** 2, axis=1))
@@ -106,7 +104,7 @@ class AudioProcessor:
         return AudioAnalysisResult(distance, angle, snr, spectrum, rms)
 
     def analyze_file(self, file_path: str) -> Dict[str, Any]:
-        """Analizează un fișier audio și returnează rezultatele."""
+        """Analizează un fișier audio și returnează rezultatele"""
         try:
             fs, data = read(file_path)
             data = data.astype(np.float32)
@@ -158,15 +156,15 @@ class AudioProcessor:
 
 
 class Visualizer:
-    """Clasa pentru vizualizarea rezultatelor."""
+    """Clasa pentru vizualizarea rezultatelor"""
 
     @staticmethod
     def format_value(value):
-        """Formatează valori pentru afișare."""
+        """Formatează valori pentru afișare"""
         return np.format_float_positional(value, precision=4, unique=False, fractional=False, trim='k')
 
     def plot_radar(self, result: AudioAnalysisResult, capture_time: float):
-        """Generează vizualizarea radar pentru captură live."""
+        """Generează vizualizarea radar pentru captură live"""
         plt.clf()
 
         # Subplot radar
@@ -206,7 +204,7 @@ class Visualizer:
         plt.pause(0.1)
 
     def plot_analysis(self, results: Dict[str, Any]):
-        """Generează graficul complet pentru analiza fișierului."""
+        """Generează graficul complet pentru analiza fișierului"""
         plt.figure(figsize=(18, 10), constrained_layout=True)
         plt.suptitle(f"Analiză înregistrare: {results['file_name']}", y=0.98)
 
@@ -339,7 +337,7 @@ class Visualizer:
         plt.show()
 
     def format_value(self, value):
-        """Formatează valoarea în funcție de mărime."""
+        """Formatează valoarea în funcție de mărime"""
         if value < 0.001:
             return f"{value * 1000000:.2f} µ"
         elif value < 1:
@@ -347,7 +345,7 @@ class Visualizer:
         else:
             return f"{value:.2f}"
 class AudioCapture:
-    """Clasa pentru captura audio live."""
+    """Clasa pentru captura audio live"""
 
     def __init__(self, save_directory: str):
         self.save_directory = Path(save_directory)
@@ -356,7 +354,7 @@ class AudioCapture:
         self.visualizer = Visualizer()
 
     def generate_filename(self, current_date: str) -> str:
-        """Generează un nume de fișier unic bazat pe dată."""
+        """Generează un nume de fișier unic bazat pe dată"""
         pattern = r"^CS(\d+)-" + re.escape(current_date) + r"\.wav$"
         max_num = 0
 
@@ -369,7 +367,7 @@ class AudioCapture:
         return f"CS{max_num + 1}-{current_date}.wav"
 
     def capture_audio(self, buffer_duration: int, device_index: int, fs: int = Config.FS, channels: int = 4):
-        """Captează și procesează audio live."""
+        """Captează și procesează audio live"""
         try:
             plt.ion()
             silence_time = 0
@@ -409,7 +407,7 @@ class AudioCapture:
 
 
 class AudioAnalysisApp:
-    """Clasa principală a aplicației."""
+    """Clasa principală a aplicației"""
 
     def __init__(self):
         self.base_dir = Path("E:\\Sunete")
@@ -417,7 +415,7 @@ class AudioAnalysisApp:
         self.visualizer = Visualizer()
 
     def list_folders(self) -> List[Tuple[str, Path]]:
-        """Listează folderele disponibile pentru analiză."""
+        """Listează folderele disponibile pentru analiză"""
         folders = []
         for name in ["CapturaLive", "Înregistrări"]:
             path = self.base_dir / name
@@ -426,11 +424,11 @@ class AudioAnalysisApp:
         return folders
 
     def list_wav_files(self, folder_path: Path) -> List[Path]:
-        """Listează fișierele WAV din folder."""
+        """Listează fișierele WAV din folder"""
         return sorted(folder_path.glob("*.wav"))
 
     def run_live_capture_mode(self):
-        """Rulează modul de captură live."""
+        """Rulează modul de captură live"""
         save_directory = self.base_dir / "CapturaLive"
         capture = AudioCapture(save_directory)
 
@@ -445,7 +443,7 @@ class AudioAnalysisApp:
         capture.capture_audio(buffer_duration, device_index)
 
     def run_file_analysis_mode(self):
-        """Rulează modul de analiză a fișierelor."""
+        """Rulează modul de analiză a fișierelor"""
         folders = self.list_folders()
 
         if not folders:
@@ -480,7 +478,7 @@ class AudioAnalysisApp:
             self.visualizer.plot_analysis(results)
 
     def run(self):
-        """Funcția principală pentru rularea aplicației."""
+        """Funcția principală pentru rularea aplicației"""
         print("Selectați modul:")
         print("1. Captură live")
         print("2. Analiza înregistrare")
