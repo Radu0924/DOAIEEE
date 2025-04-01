@@ -16,7 +16,7 @@ from scipy.signal.windows import hann
 
 @dataclass
 class AudioAnalysisResult:
-    """Clasa pentru stocarea rezultatelor analizei audio."""
+    """Clasa pentru stocarea rezultatelor analizei audio"""
     distance: float
     angle: float
     snr: float
@@ -25,12 +25,12 @@ class AudioAnalysisResult:
 
 
 class AudioProcessor:
-    """Clasa pentru procesarea semnalelor audio."""
+    """Clasa pentru procesarea semnalelor audio"""
 
     def __init__(self, fs: int = 44100):
         self.fs = fs
         self.R = 0.1  # Raza configurației microfonului (m)
-        self.wavelength = 343 / self.fs  # Lungimea de undă (viteza_sunet/frecvența)
+        self.wavelength = 343 / self.fs  # Lungimea de undă
         self.mic_angles = np.array([-45, -25, 25, 45])  # Unghiurile microfonului
 
     def normalize_audio(self, data: np.ndarray, target_level: float = 0.9) -> np.ndarray:
@@ -42,17 +42,17 @@ class AudioProcessor:
         return data * scaling_factors
 
     def estimate_covariance_matrix(self, data: np.ndarray) -> np.ndarray:
-        """Estimează matricea de covarianță."""
+        """Estimează matricea de covarianță"""
         mean_centered = data - np.mean(data, axis=1, keepdims=True)
         cov_matrix = (mean_centered @ mean_centered.T) / (data.shape[1] - 1)
         return cov_matrix
 
     def calculate_steering_vector(self, angle: float) -> np.ndarray:
-        """Calculează vectorul de direcție pentru MUSIC."""
+        """Calculează vectorul de direcție pentru MUSIC"""
         return np.exp(-1j * 2 * np.pi * self.R * np.cos(np.deg2rad(angle - self.mic_angles)) / self.wavelength)
 
     def music_algorithm(self, cov_matrix: np.ndarray, num_sources: int = 1) -> Tuple[float, np.ndarray]:
-        """Implementare algoritm MUSIC pentru localizare."""
+        """Implementare algoritm MUSIC pentru localizare"""
         eigvals, eigvecs = eigh(cov_matrix)
         idx = np.argsort(eigvals)[::-1]
         eigvals = eigvals[idx]
@@ -73,7 +73,7 @@ class AudioProcessor:
         return peak_angle, spectrum
 
     def calculate_waterfall_psd(self, data: np.ndarray, fs: int = 44100) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Calculează periodograma waterfall pentru suma celor 4 microfoane."""
+        """Calculează periodograma waterfall pentru suma celor 4 microfoane"""
         n_samples = data.shape[1]
         nfft = 2 ** int(np.ceil(np.log2(fs / 200)))  # Aproximare la cea mai apropiată putere a lui 2
         window = hann(nfft)
@@ -330,7 +330,7 @@ class AudioCapture:
                     for i, vol in enumerate(result.rms):
                         print(f"Microfon {i + 1}: {self.visualizer.format_value(vol)}")
 
-                    # Convert the result to a dictionary for plot_analysis
+                    # Convert the result to a dictionary for plot analysis
                     results_dict = {
                         'file_name': filename,
                         'angle': result.angle,
@@ -359,7 +359,7 @@ class AudioCapture:
 
 
 class AudioAnalysisApp:
-    """Clasa principală a aplicației."""
+    """Clasa principală a aplicației"""
 
     def __init__(self):
         self.base_dir = Path("E:\\Sunete")
@@ -430,7 +430,7 @@ class AudioAnalysisApp:
             self.visualizer.plot_analysis(results)
 
     def run(self):
-        """Funcția principală pentru rularea aplicației."""
+        """Funcția principală pentru rularea aplicației"""
         print("Selectați modul:")
         print("1. Captură live")
         print("2. Analiza înregistrare")
