@@ -483,6 +483,7 @@ class AudioAnalysisApp:
         print("1. Captură live")
         print("2. Analiza înregistrare")
         mode = input("> ").strip()
+        
 
         if mode == "1":
             print("Modul selectat: Captură live")
