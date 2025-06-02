@@ -13,19 +13,19 @@ from typing import Tuple, List, Optional, Dict, Any
 from scipy.signal import spectrogram
 
 class Config:
-    FS = 44100  # Frecvența de eșantionare
-    R = 0.1  # Raza configurației microfonului (m)
-    MIC_ANGLES = np.array([-45, -25, 25, 45])  # Unghiurile microfoanelor
-    WAVELENGTH = 343 / FS  # Lungimea de undă (viteza sunet / frecvența)
-    BUFFER_DURATION = 5  # Durata buffer-ului pentru captura live
-    NPERSEG = int(2 ** np.ceil(np.log2(FS // 200)))  # Dimensiunea ferestrei pentru spectrogramă
-    NOVERLAP = NPERSEG // 2  # Overlap pentru spectrogramă (50%)
-    PLOT_FREQ_LIMIT = 5000  # Limita superioară pentru afișarea frecvențelor
+    FS = 44100  # Sampling frequency
+    R = 0.1  # Microphone array radius (m)
+    MIC_ANGLES = np.array([-45, -25, 25, 45])  # Microphone angles
+    WAVELENGTH = 343 / FS  # Wavelength (sound speed / frequency)
+    BUFFER_DURATION = 5  # Buffer duration for live capture
+    NPERSEG = int(2 ** np.ceil(np.log2(FS // 200)))  # Window size for spectrogram
+    NOVERLAP = NPERSEG // 2  # Spectrogram overlap (50%)
+    PLOT_FREQ_LIMIT = 5000  # Upper frequency limit for display
 
 
 @dataclass
 class AudioAnalysisResult:
-    """Clasa pentru stocarea rezultatelor analizei audio"""
+    """Class for storing audio analysis results"""
     distance: float
     angle: float
     snr: float
@@ -34,30 +34,30 @@ class AudioAnalysisResult:
 
 
 class AudioProcessor:
-    """Clasa pentru procesarea semnalelor audio"""
+    """Class for audio signal processing"""
 
     def __init__(self):
         self.config = Config()
 
     def normalize_audio(self, data: np.ndarray, target_level: float = 0.9) -> np.ndarray:
-        """Normalizează semnalul audio la un nivel specificat"""
+        """Normalizes audio signal to specified level"""
         data = data.astype(np.float32)
         max_vals = np.max(np.abs(data), axis=1, keepdims=True)
-        max_vals[max_vals == 0] = 1.0  # Evită împărțirea la zero
+        max_vals[max_vals == 0] = 1.0  # Avoid division by zero
         scaling_factors = target_level / max_vals
         return data * scaling_factors
 
     def estimate_covariance_matrix(self, data: np.ndarray) -> np.ndarray:
-        """Estimează matricea de covarianță"""
+        """Estimates covariance matrix"""
         mean_centered = data - np.mean(data, axis=1, keepdims=True)
         return (mean_centered @ mean_centered.T) / (data.shape[1] - 1)
 
     def calculate_steering_vector(self, angle: float) -> np.ndarray:
-        """Calculează vectorul de direcție pentru MUSIC"""
+        """Calculates steering vector for MUSIC"""
         return np.exp(-1j * 2 * np.pi * self.config.R * np.cos(np.deg2rad(angle - self.config.MIC_ANGLES)) / self.config.WAVELENGTH)
 
     def music_algorithm(self, cov_matrix: np.ndarray, num_sources: int = 1) -> Tuple[float, np.ndarray]:
-        """Implementare algoritm MUSIC pentru localizare"""
+        """MUSIC algorithm implementation for localization"""
         eigvals, eigvecs = eigh(cov_matrix)
         idx = np.argsort(eigvals)[::-1]
         noise_subspace = eigvecs[:, idx[num_sources:]]
@@ -75,15 +75,15 @@ class AudioProcessor:
         return peak_angle, spectrum
 
     def calculate_waterfall_psd(self, data: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Calculează periodograma waterfall pentru suma celor 4 microfoane"""
+        """Calculates waterfall PSD for sum of all 4 microphones"""
         summed_signal = np.sum(data, axis=0)
         freqs, times, Sxx = spectrogram(summed_signal, fs=self.config.FS, window='hann',
-                                        nperseg=self.config.NPERSEG, noverlap=self.config.NOVERLAP)
-        psd = 10 * np.log10(Sxx + 1e-12)  # Adăugăm un offset mic pentru a evita log(0)
+                                      nperseg=self.config.NPERSEG, noverlap=self.config.NOVERLAP)
+        psd = 10 * np.log10(Sxx + 1e-12)  # Add small offset to avoid log(0)
         return freqs, times, psd
 
     def process_frame(self, frame: np.ndarray) -> Optional[AudioAnalysisResult]:
-        """Procesează un cadru audio"""
+        """Processes an audio frame"""
         frame = frame.T
         frame = self.normalize_audio(frame)
         rms = np.sqrt(np.mean(frame ** 2, axis=1))
@@ -104,33 +104,33 @@ class AudioProcessor:
         return AudioAnalysisResult(distance, angle, snr, spectrum, rms)
 
     def analyze_file(self, file_path: str) -> Dict[str, Any]:
-        """Analizează un fișier audio și returnează rezultatele"""
+        """Analyzes an audio file and returns results"""
         try:
             fs, data = read(file_path)
             data = data.astype(np.float32)
             channels_data = self.normalize_audio(data.T)
 
-            # Calcul metrici
+            # Calculate metrics
             rms = np.sqrt(np.mean(channels_data ** 2, axis=1))
             cov_matrix = self.estimate_covariance_matrix(channels_data)
             std_dev = np.sqrt(np.diag(cov_matrix))
             std_dev[std_dev == 0] = 1e-12
             corr_matrix = cov_matrix / np.outer(std_dev, std_dev)
 
-            # Calcul PSD waterfall
+            # Calculate PSD waterfall
             freqs, times, psd_waterfall = self.calculate_waterfall_psd(channels_data)
 
-            # Calcul parametri
+            # Calculate parameters
             angle, music_spectrum = self.music_algorithm(cov_matrix)
             peak_to_peak = np.ptp(channels_data, axis=1)
             snr = 20 * np.log10(np.max(peak_to_peak) / np.percentile(peak_to_peak, 10))
             distance = np.abs(np.tan(np.deg2rad(angle))) * 1.0
 
-            # Calcule statistice
+            # Statistical calculations
             rms_mean = np.mean(rms)
             rms_std = np.std(rms)
 
-            # Calcul frecvențe dominante
+            # Calculate dominant frequencies
             peak_freqs = [freqs[np.argmax(10 ** (psd_db / 20))] for psd_db in psd_waterfall.T]
 
             return {
@@ -151,23 +151,23 @@ class AudioProcessor:
                 'n_samples': data.shape[0]
             }
         except Exception as e:
-            print(f"Eroare la procesare: {e}")
+            print(f"Processing error: {e}")
             return {}
 
 
 class Visualizer:
-    """Clasa pentru vizualizarea rezultatelor"""
+    """Class for visualizing results"""
 
     @staticmethod
     def format_value(value):
-        """Formatează valori pentru afișare"""
+        """Formats values for display"""
         return np.format_float_positional(value, precision=4, unique=False, fractional=False, trim='k')
 
     def plot_radar(self, result: AudioAnalysisResult, capture_time: float):
-        """Generează vizualizarea radar pentru captură live"""
+        """Generates radar visualization for live capture"""
         plt.clf()
 
-        # Subplot radar
+        # Radar subplot
         ax1 = plt.subplot(1, 2, 1, projection='polar')
         ax1.set_theta_zero_location('N')
         ax1.set_theta_direction(-1)
@@ -180,16 +180,16 @@ class Visualizer:
 
         capture_dt = datetime.datetime.fromtimestamp(capture_time)
         current_date = capture_dt.strftime("%d-%m-%Y")
-        plt.figtext(0.01, 0.01, f"Data: {current_date}", fontsize=10, color="blue")
-        ax1.set_title(f'Sursa sunet: {result.angle:.1f}° | Distanță: {result.distance:.2f} m')
+        plt.figtext(0.01, 0.01, f"Date: {current_date}", fontsize=10, color="blue")
+        ax1.set_title(f'Sound source: {result.angle:.1f}° | Distance: {result.distance:.2f} m')
 
-        # Subplot volume
+        # Volume subplot
         ax2 = plt.subplot(1, 2, 2)
         bars = ax2.bar(range(1, 5), result.rms, color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'])
         ax2.set_xticks(range(1, 5))
-        ax2.set_xlabel('Microfon')
-        ax2.set_ylabel('Valoare RMS')
-        ax2.set_title('Nivel semnal pe microfoane')
+        ax2.set_xlabel('Microphone')
+        ax2.set_ylabel('RMS Value')
+        ax2.set_title('Signal level on microphones')
 
         for bar in bars:
             height = bar.get_height()
@@ -204,9 +204,9 @@ class Visualizer:
         plt.pause(0.1)
 
     def plot_analysis(self, results: Dict[str, Any]):
-        """Generează graficul complet pentru analiza fișierului"""
+        """Generates complete analysis plot for file"""
         plt.figure(figsize=(18, 10), constrained_layout=True)
-        plt.suptitle(f"Analiză înregistrare: {results['file_name']}", y=0.98)
+        plt.suptitle(f"Recording analysis: {results['file_name']}", y=0.98)
 
         # Radar plot
         ax = plt.subplot(2, 3, 1, polar=True)
@@ -217,12 +217,12 @@ class Visualizer:
         ax.set_rlim(0, 5)
         ax.plot(np.deg2rad(results['angle']), results['distance'], 'ro', markersize=10)
         ax.grid(True, linestyle='--', alpha=0.7)
-        plt.title(f'Localizare\n{results["angle"]:.1f}°, {results["distance"]:.2f}m', pad=20)
+        plt.title(f'Localization\n{results["angle"]:.1f}°, {results["distance"]:.2f}m', pad=20)
 
-        # Matrice corelație
+        # Correlation matrix
         plt.subplot(2, 3, 2)
         plt.imshow(results['corr_matrix'], cmap='coolwarm', vmin=-1, vmax=1)
-        plt.colorbar(label='Coeficient de corelație')
+        plt.colorbar(label='Correlation coefficient')
         plt.xticks(range(4), ['M1', 'M2', 'M3', 'M4'])
         plt.yticks(range(4), ['M1', 'M2', 'M3', 'M4'])
 
@@ -232,13 +232,13 @@ class Visualizer:
                          ha='center', va='center',
                          color='w' if abs(results['corr_matrix'][i, j]) > 0.5 else 'k')
         plt.grid(False)
-        plt.title('Matrice de corelație', pad=15)
+        plt.title('Correlation matrix', pad=15)
 
-        # Spectru MUSIC
+        # MUSIC spectrum
         plt.subplot(2, 3, 3)
         angles = np.linspace(-45, 45, 180)
         plt.plot(angles, results['music_spectrum'], lw=2)
-        plt.axvline(results['angle'], color='r', linestyle='--', label='Unghi detectat')
+        plt.axvline(results['angle'], color='r', linestyle='--', label='Detected angle')
 
         peak_val = np.max(results['music_spectrum'])
         plt.scatter(results['angle'], peak_val, color='red', zorder=5)
@@ -249,22 +249,22 @@ class Visualizer:
                      ha='left',
                      arrowprops=dict(arrowstyle='->'))
 
-        plt.xlabel('Unghi (grade)', labelpad=10)
-        plt.ylabel('Amplitudine MUSIC', labelpad=10)
-        plt.title('Spectru MUSIC DOA', pad=15)
+        plt.xlabel('Angle (degrees)', labelpad=10)
+        plt.ylabel('MUSIC Amplitude', labelpad=10)
+        plt.title('MUSIC DOA Spectrum', pad=15)
         plt.grid(True, alpha=0.3)
         plt.legend()
 
-        # Periodogramă waterfall
+        # Waterfall periodogram
         plt.subplot(2, 3, 4)
         plt.pcolormesh(results['times'], results['freq'], results['psd_waterfall'], shading='gouraud')
-        plt.colorbar(label='Putere (dB)')
-        plt.xlabel('Timp (s)', labelpad=10)
-        plt.ylabel('Frecvență (Hz)', labelpad=10)
-        plt.title('Periodogramă Waterfall', pad=15)
+        plt.colorbar(label='Power (dB)')
+        plt.xlabel('Time (s)', labelpad=10)
+        plt.ylabel('Frequency (Hz)', labelpad=10)
+        plt.title('Waterfall Periodogram', pad=15)
         plt.ylim(0, Config.PLOT_FREQ_LIMIT)
 
-        # Volume microfoane
+        # Microphone volumes
         plt.subplot(2, 3, 5)
         bars = plt.bar(range(1, 5), results['rms'], color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'])
         plt.xticks(range(1, 5))
@@ -277,56 +277,56 @@ class Visualizer:
                      ha='center',
                      va='bottom')
 
-        plt.xlabel('Microfon', labelpad=10)
-        plt.ylabel('Valoare RMS', labelpad=10)
-        plt.title('Nivel semnal pe microfoane', pad=15)
+        plt.xlabel('Microphone', labelpad=10)
+        plt.ylabel('RMS Value', labelpad=10)
+        plt.title('Signal level on microphones', pad=15)
         plt.grid(True, axis='y', alpha=0.3)
 
-        # Panou informativ
+        # Info panel
         plt.subplot(2, 3, 6)
         plt.axis('off')
 
-        # Calculează frecvențele dominante în mod dinamic
+        # Calculate dominant frequencies dynamically
         psd_waterfall = results['psd_waterfall']
 
-        # Calcul mediu spectru pentru a găsi frecvențele dominante
+        # Calculate average spectrum to find dominant frequencies
         mean_spectrum = np.mean(psd_waterfall, axis=1)
 
-        # Calculează pragul dinamic (media puterii + deviația standard)
+        # Calculate dynamic threshold (mean power + standard deviation)
         threshold = np.mean(mean_spectrum) + np.std(mean_spectrum)
 
-        # Identifică vârfurile spectrale
+        # Identify spectral peaks
         from scipy.signal import find_peaks
         peaks, _ = find_peaks(mean_spectrum, height=threshold, distance=5)
 
-        # Obține frecvențele și puterile asociate vârfurilor
+        # Get frequencies and powers associated with peaks
         peak_freqs = results['freq'][peaks]
         peak_powers = mean_spectrum[peaks]
 
-        # Sortează după putere (descrescător)
+        # Sort by power (descending)
         sorted_indices = np.argsort(-peak_powers)
         peak_freqs = peak_freqs[sorted_indices]
         peak_powers = peak_powers[sorted_indices]
 
-        # Limitează la primele 5 (sau mai puține dacă nu există 5)
+        # Limit to top 5 (or fewer if less than 5 exist)
         num_peaks = min(5, len(peak_freqs))
         peak_freqs = peak_freqs[:num_peaks]
         peak_powers = peak_powers[:num_peaks]
 
-        # Formatează pentru afișare
+        # Format for display
         if len(peak_freqs) > 0:
             peak_freq_str = ", ".join(f"{peak_freqs[i]:.0f} Hz ({peak_powers[i]:.1f} dB)" for i in range(num_peaks))
         else:
-            peak_freq_str = "Nicio frecvență dominantă detectată"
+            peak_freq_str = "No dominant frequencies detected"
 
         info_text = (
                 f"• SNR: {results['snr']:.1f} dB\n"
-                f"• Distanță estimată: {results['distance']:.2f} m\n"
-                f"• Unghi detectat: {results['angle']:.1f}°\n"
-                f"• Frecvențe dominante:\n  " + peak_freq_str.replace(", ", "\n  ") + "\n"
-                                                                                      f"• RMS mediu: {self.format_value(results['rms_mean'])} ± {self.format_value(results['rms_std'])}\n"
-                                                                                      f"• Frecvență eșantionare: {results['fs'] / 1000:.1f} kHz\n"
-                                                                                      f"• Durată înregistrare: {results['n_samples'] / results['fs']:.2f}s"
+                f"• Estimated distance: {results['distance']:.2f} m\n"
+                f"• Detected angle: {results['angle']:.1f}°\n"
+                f"• Dominant frequencies:\n  " + peak_freq_str.replace(", ", "\n  ") + "\n"
+                f"• Average RMS: {self.format_value(results['rms_mean'])} ± {self.format_value(results['rms_std'])}\n"
+                f"• Sampling frequency: {results['fs'] / 1000:.1f} kHz\n"
+                f"• Recording duration: {results['n_samples'] / results['fs']:.2f}s"
         )
 
         plt.text(-0.5, 0.5, info_text,
@@ -337,15 +337,17 @@ class Visualizer:
         plt.show()
 
     def format_value(self, value):
-        """Formatează valoarea în funcție de mărime"""
+        """Formats value based on magnitude"""
         if value < 0.001:
             return f"{value * 1000000:.2f} µ"
         elif value < 1:
             return f"{value * 1000:.2f} m"
         else:
             return f"{value:.2f}"
+
+
 class AudioCapture:
-    """Clasa pentru captura audio live"""
+    """Class for live audio capture"""
 
     def __init__(self, save_directory: str):
         self.save_directory = Path(save_directory)
@@ -354,7 +356,7 @@ class AudioCapture:
         self.visualizer = Visualizer()
 
     def generate_filename(self, current_date: str) -> str:
-        """Generează un nume de fișier unic bazat pe dată"""
+        """Generates unique filename based on date"""
         pattern = r"^CS(\d+)-" + re.escape(current_date) + r"\.wav$"
         max_num = 0
 
@@ -367,7 +369,7 @@ class AudioCapture:
         return f"CS{max_num + 1}-{current_date}.wav"
 
     def capture_audio(self, buffer_duration: int, device_index: int, fs: int = Config.FS, channels: int = 4):
-        """Captează și procesează audio live"""
+        """Captures and processes live audio"""
         try:
             plt.ion()
             silence_time = 0
@@ -385,92 +387,92 @@ class AudioCapture:
                 filename = self.generate_filename(current_date)
                 file_path = self.save_directory / filename
                 write(file_path, fs, record_voice)
-                print(f"Înregistrare salvată ca: {filename}")
+                print(f"Recording saved as: {filename}")
 
                 result = self.processor.process_frame(record_voice)
                 if result:
-                    print("\nSunet detectat!")
-                    print(f"Distanță: {result.distance:.2f} m")
-                    print(f"Unghi: {result.angle:.1f}°")
+                    print("\nSound detected!")
+                    print(f"Distance: {result.distance:.2f} m")
+                    print(f"Angle: {result.angle:.1f}°")
                     print(f"SNR: {result.snr:.1f} dB")
-                    print("Volume microfoane:")
+                    print("Microphone volumes:")
                     for i, vol in enumerate(result.rms):
-                        print(f"Microfon {i + 1}: {self.visualizer.format_value(vol)}")
+                        print(f"Microphone {i + 1}: {self.visualizer.format_value(vol)}")
                     self.visualizer.plot_radar(result, capture_time)
                     silence_time = 0
                 else:
                     silence_time += buffer_duration
-                    print("Niciun sunet detectat.")
+                    print("No sound detected.")
         except KeyboardInterrupt:
-            print("\nProgramul a fost oprit.")
+            print("\nProgram stopped.")
             plt.close()
 
 
 class AudioAnalysisApp:
-    """Clasa principală a aplicației"""
+    """Main application class"""
 
     def __init__(self):
-        self.base_dir = Path("E:\\Sunete")
+        self.base_dir = Path("E:\\Sounds")
         self.processor = AudioProcessor()
         self.visualizer = Visualizer()
 
     def list_folders(self) -> List[Tuple[str, Path]]:
-        """Listează folderele disponibile pentru analiză"""
+        """Lists available folders for analysis"""
         folders = []
-        for name in ["CapturaLive", "Înregistrări"]:
+        for name in ["LiveCapture", "Recordings"]:
             path = self.base_dir / name
             if path.exists():
                 folders.append((name, path))
         return folders
 
     def list_wav_files(self, folder_path: Path) -> List[Path]:
-        """Listează fișierele WAV din folder"""
+        """Lists WAV files in folder"""
         return sorted(folder_path.glob("*.wav"))
 
     def run_live_capture_mode(self):
-        """Rulează modul de captură live"""
-        save_directory = self.base_dir / "CapturaLive"
+        """Runs live capture mode"""
+        save_directory = self.base_dir / "LiveCapture"
         capture = AudioCapture(save_directory)
 
-        buffer_duration = int(input("Selectați durata buffer-ului (1-10 secunde): "))
+        buffer_duration = int(input("Select buffer duration (1-10 seconds): "))
 
         devices = sd.query_devices()
         for idx, device in enumerate(devices):
-            print(f"{idx}: {device['name']} (canale de input: {device['max_input_channels']})")
+            print(f"{idx}: {device['name']} (input channels: {device['max_input_channels']})")
 
-        device_index = int(input("Introduceți indexul dispozitivului de input dorit: "))
+        device_index = int(input("Enter desired input device index: "))
 
         capture.capture_audio(buffer_duration, device_index)
 
     def run_file_analysis_mode(self):
-        """Rulează modul de analiză a fișierelor"""
+        """Runs file analysis mode"""
         folders = self.list_folders()
 
         if not folders:
-            print("Niciun folder disponibil pentru analiză.")
+            print("No folders available for analysis.")
             return
 
-        print("Foldere disponibile:")
+        print("Available folders:")
         for i, (name, path) in enumerate(folders, 1):
             print(f"{i}. {name}")
             wav_files = self.list_wav_files(path)
             for f in wav_files[:3]:
                 print(f"   - {f.name}")
             if len(wav_files) > 3:
-                print(f"   ... și încă {len(wav_files) - 3} fișiere")
+                print(f"   ... and {len(wav_files) - 3} more files")
 
-        folder_idx = int(input("Selectați numărul folderului: ")) - 1
+        folder_idx = int(input("Select folder number: ")) - 1
         folder_path = folders[folder_idx][1]
 
         wav_files = self.list_wav_files(folder_path)
         if not wav_files:
-            print("Folderul este gol.")
+            print("Folder is empty.")
             return
 
-        print("Fișiere disponibile:")
+        print("Available files:")
         for i, f in enumerate(wav_files, 1):
             print(f"{i}. {f.name}")
-        file_idx = int(input("Selectați numărul fișierului: ")) - 1
+        file_idx = int(input("Select file number: ")) - 1
         file_path = wav_files[file_idx]
 
         results = self.processor.analyze_file(str(file_path))
@@ -478,20 +480,19 @@ class AudioAnalysisApp:
             self.visualizer.plot_analysis(results)
 
     def run(self):
-        """Funcția principală pentru rularea aplicației"""
-        print("Selectați modul:")
-        print("1. Captură live")
-        print("2. Analiza înregistrare")
+        """Main function to run the application"""
+        print("Select mode:")
+        print("1. Live capture")
+        print("2. Recording analysis")
         mode = input("> ").strip()
         
-
         if mode == "1":
-            print("Modul selectat: Captură live")
+            print("Selected mode: Live capture")
             self.run_live_capture_mode()
         elif mode == "2":
             self.run_file_analysis_mode()
         else:
-            print("Opțiune invalidă.")
+            print("Invalid option.")
 
 
 if __name__ == "__main__":
